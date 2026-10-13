@@ -30,7 +30,7 @@ stage('SonarQube Analysis') {
 
             withSonarQubeEnv('Sonarqube') {
                 sh """
-                    "\${scannerHome}/bin/sonar-scanner" \
+                    "${scannerHome}/bin/sonar-scanner" \
                       -Dsonar.projectKey=Ncodeit \
                       -Dsonar.projectName=Ncodeit \
                       -Dsonar.projectVersion=2.0 \
