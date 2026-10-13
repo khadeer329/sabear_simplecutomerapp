@@ -1,9 +1,8 @@
 pipeline {
     agent any
+
     tools {
-        // Note: this should match with the tool name configured in your jenkins instance (JENKINS_URL/configureTools/)
-        maven "Maven"
-        
+        maven 'Maven'
     }
 
     stages {
@@ -14,76 +13,92 @@ pipeline {
             }
         }
 
-        stage("mvn build") {
+        stage('Maven Build') {
             steps {
-                script {
-                    // If you are using Windows then you should use "bat" step
-                    // Since unit testing is out of the scope we skip them
-                    sh 'mvn -Dmaven.test.failure.ignore=true clean install'
-                }
+                sh 'mvn -Dmaven.test.failure.ignore=true clean install'
             }
         }
-stage('SonarQube Analysis') {
-    steps {
-        script {
-            def scannerHome = tool 'sonarqubeScanner'
 
-            withSonarQubeEnv('Sonarqube') {
-                sh """
-                    "${scannerHome}/bin/sonar-scanner" \
-                      -Dsonar.projectKey=Ncodeit \
-                      -Dsonar.projectName=Ncodeit \
-                      -Dsonar.projectVersion=2.0 \
-                      -Dsonar.sources=src \
-                      -Dsonar.java.binaries=target/classes \
-                      -Dsonar.junit.reportPaths=target/surefire-reports
-                """
-            }
-        }
-    }
-}
-        stage("publish to nexus") {
+        stage('SonarQube Analysis') {
             steps {
                 script {
-                    // Read POM xml file using 'readMavenPom' step , this step 'readMavenPom' is included in: https://plugins.jenkins.io/pipeline-utility-steps
-                    pom = readMavenPom file: "pom.xml";
-                    // Find built artifact under target folder
-                    filesByGlob = findFiles(glob: "target/*.${pom.packaging}");
-                    // Print some info from the artifact found
-                    echo "${filesByGlob[0].name} ${filesByGlob[0].path} ${filesByGlob[0].directory} ${filesByGlob[0].length} ${filesByGlob[0].lastModified}"
-                    // Extract the path from the File found
-                    artifactPath = filesByGlob[0].path;
-                    // Assign to a boolean response verifying If the artifact name exists
-                    artifactExists = fileExists artifactPath;
-                    if(artifactExists) {
-                        echo "*** File: ${artifactPath}, group: ${pom.groupId}, packaging: ${pom.packaging}, version ${pom.version}";
-                        nexusArtifactUploader(
-                            nexusVersion: NEXUS_VERSION,
-                            protocol: NEXUS_PROTOCOL,
-                            nexusUrl: NEXUS_URL,
-			    groupId: pom.groupId,
-                            version: pom.version,
-                            repository: NEXUS_REPOSITORY,
-                            credentialsId: NEXUS_CREDENTIAL_ID,
-                            artifacts: [
-                                // Artifact generated such as .jar, .ear and .war files.
-                                [artifactId: pom.artifactId,
-                                classifier: '',
-                                file: artifactPath,
-                                type: pom.packaging],
-                                // Lets upload the pom.xml file for additional information for Transitive dependencies
-                                [artifactId: pom.artifactId,
-                                classifier: '',
-                                file: "pom.xml",
-                                type: "pom"]
-                            ]
-                        );
-                    } else {
-                        error "*** File: ${artifactPath}, could not be found";
+                    def scannerHome = tool 'sonarqubeScanner'
+
+                    withSonarQubeEnv('Sonarqube') {
+                        sh """
+                            "${scannerHome}/bin/sonar-scanner" \
+                              -Dsonar.projectKey=Ncodeit \
+                              -Dsonar.projectName=Ncodeit \
+                              -Dsonar.projectVersion=2.0 \
+                              -Dsonar.sources=src \
+                              -Dsonar.java.binaries=target/classes \
+                              -Dsonar.junit.reportPaths=target/surefire-reports
+                        """
                     }
                 }
             }
         }
+
+        stage('Publish to Nexus') {
+            steps {
+                script {
+                    def pom = readMavenPom file: 'pom.xml'
+
+                    def artifacts = findFiles(
+                        glob: "target/*.${pom.packaging}"
+                    )
+
+                    if (artifacts.length == 0) {
+                        error "No ${pom.packaging} artifact found in target/"
+                    }
+
+                    def artifactPath = artifacts[0].path
+
+                    if (!fileExists(artifactPath)) {
+                        error "Artifact not found: ${artifactPath}"
+                    }
+
+                    echo "Uploading ${artifactPath}"
+                    echo "Group: ${pom.groupId}"
+                    echo "Artifact: ${pom.artifactId}"
+                    echo "Version: ${pom.version}"
+
+                    nexusArtifactUploader(
+                        nexusVersion: env.NEXUS_VERSION,
+                        protocol: env.NEXUS_PROTOCOL,
+                        nexusUrl: env.NEXUS_URL,
+                        groupId: pom.groupId,
+                        artifactId: pom.artifactId,
+                        version: pom.version,
+                        repository: env.NEXUS_REPOSITORY,
+                        credentialsId: env.NEXUS_CREDENTIAL_ID,
+                        artifacts: [
+                            [
+                                artifactId: pom.artifactId,
+                                classifier: '',
+                                file: artifactPath,
+                                type: pom.packaging
+                            ],
+                            [
+                                artifactId: pom.artifactId,
+                                classifier: '',
+                                file: 'pom.xml',
+                                type: 'pom'
+                            ]
+                        ]
+                    )
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo 'Maven build, SonarQube analysis, and Nexus upload completed.'
+        }
+
+        failure {
+            echo 'Pipeline failed. Check the first error in Console Output.'
+        }
     }
 }
-
